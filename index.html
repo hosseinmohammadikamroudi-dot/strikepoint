@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Strikepoint</title>
+    <style>
+      :root { color-scheme: dark; }
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #15181e; }
+      #app { display: block; width: 100vw; height: 100vh; }
+      .mono { font: 13px/1.5 ui-monospace, "Cascadia Code", Consolas, monospace; }
+
+      /* HUD */
+      #hud { position: fixed; inset: 0; pointer-events: none; color: #e8edf4; }
+      #hud-topright {
+        position: fixed; top: 12px; right: 12px; text-align: right;
+        color: #8f9aac; font: 12px ui-monospace, Consolas, monospace;
+      }
+      #hud-bottomleft {
+        position: fixed; bottom: 12px; left: 12px;
+        font: 15px ui-monospace, Consolas, monospace;
+        background: rgba(14,17,22,0.55); border: 1px solid #333a46;
+        border-radius: 6px; padding: 8px 12px;
+      }
+      #hud-match {
+        position: fixed; top: 10px; left: 50%; transform: translateX(-50%);
+        font: 15px ui-monospace, Consolas, monospace; color: #e8edf4;
+        background: rgba(14,17,22,0.55); border: 1px solid #333a46;
+        border-radius: 6px; padding: 6px 14px; white-space: nowrap;
+      }
+      #killfeed {
+        position: fixed; top: 64px; right: 12px; text-align: right;
+        font: 13px ui-monospace, Consolas, monospace; color: #cfd8e3;
+      }
+      #killfeed div {
+        background: rgba(14,17,22,0.55); border: 1px solid #333a46;
+        border-radius: 4px; padding: 3px 8px; margin-bottom: 4px;
+      }
+      #scoreboard {
+        position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+        min-width: 320px; background: rgba(10,12,16,0.9);
+        border: 1px solid #333a46; border-radius: 8px; padding: 14px 18px;
+        opacity: 0; transition: opacity 120ms; pointer-events: none;
+        font: 14px ui-monospace, Consolas, monospace; color: #cfd8e3;
+      }
+      #scoreboard h3 { margin: 0 0 8px; color: #ff6b35; font-size: 15px; }
+      #scoreboard .sb-row, #scoreboard .sb-head {
+        display: grid; grid-template-columns: 1fr 48px 48px; gap: 8px; padding: 3px 0;
+      }
+      #scoreboard .sb-head { color: #8f9aac; border-bottom: 1px solid #333a46; margin-bottom: 4px; }
+      #scoreboard .sb-row.me { color: #ff6b35; }
+      #hud-ammo {
+        position: fixed; bottom: 12px; right: 12px;
+        font: 22px ui-monospace, Consolas, monospace;
+        background: rgba(14,17,22,0.55); border: 1px solid #333a46;
+        border-radius: 6px; padding: 8px 14px;
+      }
+      #hud-reload {
+        position: fixed; bottom: 64px; right: 14px; color: #ff6b35;
+        font: 14px ui-monospace, Consolas, monospace; opacity: 0;
+        transition: opacity 120ms;
+      }
+      #crosshair {
+        position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
+        width: 20px; height: 20px;
+      }
+      #crosshair::before, #crosshair::after {
+        content: ""; position: absolute; background: #e8edf4; opacity: 0.9;
+      }
+      #crosshair::before { left: 50%; top: 0; width: 2px; height: 100%; transform: translateX(-50%); }
+      #crosshair::after { top: 50%; left: 0; height: 2px; width: 100%; transform: translateY(-50%); }
+      #hitmarker {
+        position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%) rotate(45deg);
+        width: 26px; height: 26px; border: 2px solid #e8edf4; border-radius: 4px;
+        opacity: 0; transition: opacity 60ms;
+      }
+
+      /* Phase 2: health bar, weapon slots, vignette, death, scope */
+      #hud-healthbar {
+        position: fixed; bottom: 82px; left: 12px; width: 180px; height: 8px;
+        background: rgba(14,17,22,0.7); border: 1px solid #333a46; border-radius: 4px;
+        overflow: hidden;
+      }
+      #hud-healthfill {
+        height: 100%; width: 100%; background: #6fd08c; transition: width 100ms linear;
+      }
+      #hud-slots {
+        position: fixed; top: 44px; left: 12px; display: flex; gap: 6px;
+        font: 12px ui-monospace, Consolas, monospace;
+      }
+      #hud-slots .slot {
+        background: rgba(14,17,22,0.55); border: 1px solid #333a46;
+        border-radius: 4px; padding: 4px 8px; color: #8f9aac;
+      }
+      #hud-slots .slot.active { color: #ff6b35; border-color: #ff6b35; }
+      #vignette {
+        position: fixed; inset: 0; pointer-events: none; opacity: 0;
+        background: radial-gradient(ellipse at center, transparent 55%, rgba(255,40,30,0.55) 100%);
+        transition: opacity 90ms linear;
+      }
+      #death {
+        position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
+        flex-direction: column; gap: 10px; background: rgba(60,8,8,0.55);
+        color: #e8edf4; font: 20px ui-monospace, Consolas, monospace;
+      }
+      #death .big { font-size: 42px; color: #ff5a4e; font-weight: 700; }
+      #scope {
+        position: fixed; inset: 0; display: none; pointer-events: none;
+      }
+      #scope::before {
+        content: ""; position: absolute; inset: 0;
+        background: radial-gradient(circle at 50% 50%, transparent 34vmin, #05070a 35vmin);
+      }
+      #scope .line-h { position: absolute; top: 50%; left: 0; width: 100%; height: 1px; background: rgba(232,237,244,0.85); }
+      #scope .line-v { position: absolute; left: 50%; top: 0; height: 100%; width: 1px; background: rgba(232,237,244,0.85); }
+
+      /* Click-to-play overlay (doubles as the pause/resume screen) */
+      #overlay {
+        position: fixed; inset: 0; display: flex; flex-direction: column;
+        align-items: center; justify-content: center; gap: 14px;
+        background: rgba(10, 12, 16, 0.82); color: #e8edf4; cursor: pointer;
+      }
+      #overlay h1 { margin: 0; font: 700 42px ui-monospace, Consolas, monospace; color: #ff6b35; }
+      #overlay p { margin: 0; color: #8f9aac; }
+      #overlay .keys { color: #cfd8e3; }
+      #overlay-quit {
+        display: none; margin-top: 10px; cursor: pointer;
+        background: rgba(14,17,22,0.7); color: #ff5a4e;
+        border: 1px solid #ff5a4e; border-radius: 6px;
+        font: 14px ui-monospace, Consolas, monospace; padding: 8px 18px;
+      }
+      #overlay-quit:hover { background: #ff5a4e; color: #0a0c10; }
+
+      /* ===== Phase 4: menu / settings / match-end screens ===== */
+      .screen {
+        position: fixed; inset: 0; display: none; flex-direction: column;
+        align-items: center; justify-content: center; gap: 18px;
+        background: rgba(10, 12, 16, 0.9); color: #e8edf4; z-index: 10;
+      }
+      .screen.open { display: flex; }
+      .screen h1 {
+        margin: 0; font: 700 52px ui-monospace, Consolas, monospace; color: #ff6b35;
+        letter-spacing: 2px;
+      }
+      .screen h2 { margin: 0 0 10px; font: 700 20px ui-monospace, Consolas, monospace; color: #e8edf4; }
+      .btn {
+        cursor: pointer; min-width: 240px; text-align: center;
+        background: rgba(255,107,53,0.12); color: #ff6b35;
+        border: 1px solid #ff6b35; border-radius: 8px;
+        font: 600 16px ui-monospace, Consolas, monospace; padding: 12px 24px;
+        transition: background 90ms, color 90ms;
+      }
+      .btn:hover { background: #ff6b35; color: #0a0c10; }
+      .btn.ghost { background: transparent; color: #8f9aac; border-color: #333a46; }
+      .btn.ghost:hover { background: #333a46; color: #e8edf4; }
+      .btn.danger { color: #ff5a4e; border-color: #ff5a4e; background: transparent; }
+      .btn.danger:hover { background: #ff5a4e; color: #0a0c10; }
+
+      #career {
+        min-width: 340px; background: rgba(14,17,22,0.7); border: 1px solid #333a46;
+        border-radius: 10px; padding: 14px 18px;
+        font: 13px ui-monospace, Consolas, monospace; color: #cfd8e3;
+      }
+      #career .rank { font-size: 17px; color: #ff6b35; font-weight: 700; }
+      #career .xpbar { height: 8px; background: #20252e; border-radius: 4px; overflow: hidden; margin: 8px 0 4px; }
+      #career .xpfill { height: 100%; background: #ff6b35; }
+      #career .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 18px; margin-top: 8px; color: #8f9aac; }
+      #session-panel {
+        min-width: 340px; background: rgba(14,17,22,0.7); border: 1px solid #333a46;
+        border-radius: 10px; padding: 10px 18px;
+        font: 12px ui-monospace, Consolas, monospace; color: #8f9aac;
+      }
+      #session-panel .title { color: #6a7686; font-size: 11px; letter-spacing: 2px; }
+
+      .settings-panel {
+        min-width: 380px; background: rgba(14,17,22,0.7); border: 1px solid #333a46;
+        border-radius: 10px; padding: 16px 20px;
+        font: 14px ui-monospace, Consolas, monospace;
+      }
+      .settings-panel .row {
+        display: grid; grid-template-columns: 150px 1fr 56px; gap: 10px;
+        align-items: center; margin-bottom: 10px;
+      }
+      .settings-panel .row label { color: #8f9aac; }
+      .settings-panel .row output { color: #ff6b35; text-align: right; }
+      .settings-panel input[type="range"] { width: 100%; accent-color: #ff6b35; }
+      .settings-panel .check { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; color: #8f9aac; }
+      .settings-panel .check input { accent-color: #ff6b35; width: 16px; height: 16px; }
+      .settings-panel .sep { border-top: 1px solid #333a46; margin: 12px 0; }
+
+      #matchend .big { font: 700 46px ui-monospace, Consolas, monospace; margin: 0; }
+      #matchend .won { color: #6fd08c; }
+      #matchend .lost { color: #ff5a4e; }
+      #me-panel {
+        min-width: 380px; background: rgba(14,17,22,0.7); border: 1px solid #333a46;
+        border-radius: 10px; padding: 16px 20px;
+        font: 14px ui-monospace, Consolas, monospace; color: #cfd8e3;
+      }
+      #me-panel .xprow { display: flex; justify-content: space-between; color: #8f9aac; }
+      #me-panel .xprow span:last-child { color: #ff6b35; }
+      #me-panel .total { border-top: 1px solid #333a46; margin-top: 8px; padding-top: 8px; }
+      #me-panel .lvl { margin-top: 10px; }
+      #me-panel .xpbar { height: 8px; background: #20252e; border-radius: 4px; overflow: hidden; margin-top: 4px; }
+      #me-panel .xpfill { height: 100%; background: #ff6b35; transition: width 300ms; }
+      #save-blob {
+        width: 100%; height: 72px; resize: vertical;
+        background: #15181e; color: #cfd8e3; border: 1px solid #333a46; border-radius: 6px;
+        font: 11px ui-monospace, Consolas, monospace; padding: 6px 8px;
+      }
+      #save-status { font-size: 12px; color: #6fd08c; min-height: 14px; }
+      #save-status.err { color: #ff5a4e; }
+
+      /* Non-blocking toast (pointer-lock fallback notices etc.) */
+      #toast {
+        position: fixed; top: 18px; left: 50%; transform: translate(-50%, -8px);
+        background: rgba(14,17,22,0.92); border: 1px solid #ff6b35; border-radius: 6px;
+        color: #e8edf4; font: 13px ui-monospace, Consolas, monospace;
+        padding: 8px 16px; opacity: 0; transition: opacity 200ms, transform 200ms;
+        pointer-events: none; z-index: 20; max-width: 80vw; text-align: center;
+      }
+      #toast.show { opacity: 1; transform: translate(-50%, 0); }
+    </style>
+  </head>
+  <body>
+    <canvas id="app"></canvas>
+
+    <div id="hud">
+      <div id="crosshair"></div>
+      <div id="hitmarker"></div>
+      <div id="hud-topright">
+        <span id="hud-backend">—</span> · <span id="hud-fps">—</span>
+      </div>
+      <div id="hud-bottomleft">
+        <div id="hud-health">HP 100</div>
+        <div id="hud-accuracy">Acc 0%</div>
+      </div>
+      <div id="hud-match">MATCH —</div>
+      <div id="killfeed"></div>
+      <div id="scoreboard">
+        <h3>SCOREBOARD</h3>
+        <div class="sb-head"><span>Player</span><span>K</span><span>D</span></div>
+        <div id="scoreboard-rows"></div>
+      </div>
+      <div id="hud-ammo">30 / 30</div>
+      <div id="hud-reload">RELOADING…</div>
+      <div id="hud-slots">
+        <span class="slot active" id="slot-0">1 Vector-7</span>
+        <span class="slot" id="slot-1">2 Hornet</span>
+        <span class="slot" id="slot-2">3 Mule</span>
+        <span class="slot" id="slot-3">4 Longview</span>
+      </div>
+      <div id="hud-healthbar"><div id="hud-healthfill"></div></div>
+    </div>
+
+    <div id="vignette"></div>
+    <div id="scope"><div class="line-h"></div><div class="line-v"></div></div>
+    <div id="death">
+      <div class="big">ELIMINATED</div>
+      <div>Respawning in <span id="death-timer">3</span>s</div>
+    </div>
+
+    <div id="overlay">
+      <h1>STRIKEPOINT</h1>
+      <p class="keys">WASD move · Shift sprint · Ctrl crouch · Space jump<br/>
+        Mouse1 fire · Mouse2 ADS · R reload · 1–4 weapons · Tab scoreboard</p>
+      <p id="overlay-hint">Paused — click to resume</p>
+      <button id="overlay-quit" type="button">Quit to menu</button>
+    </div>
+
+    <div id="toast" role="status"></div>
+
+    <div id="menu" class="screen open">
+      <h1>STRIKEPOINT</h1>
+      <div id="career"></div>
+      <div id="session-panel"></div>
+      <button id="btn-play" class="btn" type="button">PLAY — TDM · RINGHOLD</button>
+      <button id="btn-settings" class="btn ghost" type="button">SETTINGS</button>
+      <button id="btn-reset" class="btn danger" type="button">RESET CAREER</button>
+      <p style="color:#5a6473; margin:0">Original arena shooter · runs entirely in your browser</p>
+    </div>
+
+    <div id="settings-screen" class="screen">
+      <h2>SETTINGS</h2>
+      <div class="settings-panel">
+        <div class="row"><label>Field of view</label><input id="set-fov" type="range" min="60" max="110" step="1"/><output id="out-fov"></output></div>
+        <div class="row"><label>Mouse sensitivity</label><input id="set-sens" type="range" min="0.2" max="3" step="0.05"/><output id="out-sens"></output></div>
+        <div class="row"><label>Quality profile</label>
+          <select id="set-quality">
+            <option value="high">High (native res)</option>
+            <option value="medium">Medium (75%)</option>
+            <option value="low">Low (55%)</option>
+          </select>
+        </div>
+        <div class="row"><label>Resolution scale</label><input id="set-res" type="range" min="0.5" max="1" step="0.05"/><output id="out-res"></output></div>
+        <div class="check"><input id="set-fps" type="checkbox"/><label for="set-fps">Show FPS counter</label></div>
+        <div class="check"><input id="set-inverty" type="checkbox"/><label for="set-inverty">Invert mouse Y</label></div>
+        <div class="sep"></div>
+        <div class="row"><label>Master volume</label><input id="set-master" type="range" min="0" max="1" step="0.05"/><output id="out-master"></output></div>
+        <div class="row"><label>Effects volume</label><input id="set-sfx" type="range" min="0" max="1" step="0.05"/><output id="out-sfx"></output></div>
+        <div class="sep"></div>
+        <div class="row" style="align-items:flex-start">
+          <label>Portable save</label>
+          <div style="display:flex; flex-direction:column; gap:6px; flex:1">
+            <div style="display:flex; gap:8px">
+              <button id="btn-save-export" class="btn ghost" type="button" style="flex:1">EXPORT</button>
+              <button id="btn-save-import" class="btn ghost" type="button" style="flex:1">IMPORT</button>
+            </div>
+            <textarea id="save-blob" spellcheck="false" placeholder="Your save blob appears here on EXPORT — copy it somewhere safe. Paste a blob here and press IMPORT to restore."></textarea>
+            <span id="save-status"></span>
+          </div>
+        </div>
+      </div>
+      <button id="btn-settings-back" class="btn" type="button">DONE</button>
+    </div>
+
+    <div id="matchend" class="screen">
+      <p id="me-title" class="big won">VICTORY</p>
+      <div id="me-panel"></div>
+      <div style="display:flex; gap:12px">
+        <button id="btn-again" class="btn" type="button">NEXT MAP</button>
+        <button id="btn-menu" class="btn ghost" type="button">MAIN MENU</button>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

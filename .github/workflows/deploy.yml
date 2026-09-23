@@ -1,0 +1,46 @@
+name: Deploy
+
+# Phase 6 deploy pipeline: every push to main builds the production bundle
+# and publishes it as a static site (GitHub Pages). No server needed — the
+# game is a fully static SPA by design. CI (ci.yml) remains the quality gate;
+# this workflow runs only after a push lands on main.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: npm
+      - run: npm ci
+      # The deploy is gated on the same checks as CI — a red build never ships.
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      # SPA with no router: an unmatched path should serve the game shell.
+      - name: SPA fallback
+        run: cp dist/index.html dist/404.html
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+      - id: deployment
+        uses: actions/deploy-pages@v4

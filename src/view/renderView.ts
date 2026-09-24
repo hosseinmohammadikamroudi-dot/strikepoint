@@ -99,6 +99,10 @@ export async function createRenderView(
   const dummyFlashMats = new Map<number, THREE.MeshStandardMaterial>();
   const botFlashMats = new Map<number, THREE.MeshStandardMaterial>();
   const viewmodel: Viewmodel = createViewmodel(camera);
+  // Walk-cycle phase accumulator (bots' humanoid gait, advanced by speed).
+  let botWalkPhase = 0;
+  const whiteFlashMat = (): THREE.MeshStandardMaterial =>
+    new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.8 });
 
   // Interpolation snapshots (per-world; re-seeded in setWorld).
   const prevPos = new THREE.Vector3();
@@ -250,48 +254,55 @@ export async function createRenderView(
         }
       }
 
-      // --- Dummy visuals ---
+      // --- Dummy visuals: visibility, hit flash, idle sway ---
       for (const dv of dummies) {
+        const h = dv.humanoid;
         const alive = dv.d.status === "alive";
-        dv.group.visible = alive;
-        if (alive && dv.d.hitFlashTicks > 0) {
+        h.group.visible = alive;
+        if (!alive) continue;
+        if (dv.d.hitFlashTicks > 0) {
           let mat = dummyFlashMats.get(dv.d.id);
           if (!mat) {
-            mat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.8 });
+            mat = whiteFlashMat();
             dummyFlashMats.set(dv.d.id, mat);
           }
-          dv.body.material = mat;
-          dv.head.material = mat;
+          for (const m of h.flashMeshes) m.material = mat;
         } else {
-          dv.body.material = DUMMY_MAT;
-          dv.head.material = DUMMY_HEAD_MAT;
+          for (let mi = 0; mi < h.meshes.length; mi++) h.meshes[mi]!.material = h.baseMats[mi]!;
         }
+        h.walk(0, 0); // dummies stand still — idle sway only
       }
 
       const a = world.alpha;
 
-      // --- Bot visuals: interpolated transforms, flash, death visibility ---
+      // --- Bot visuals: interpolated transforms, walk cycle, hit flash ---
       for (let i = 0; i < bundle.bots.length; i++) {
         const bv = bundle.bots[i]!;
         const prev = botPrev[i]!;
+        const h = bv.humanoid;
         const alive = bv.b.mode !== "dead";
-        bv.group.visible = alive;
+        h.group.visible = alive;
         if (!alive) continue;
         const bx = prev.x + (bv.b.x - prev.x) * a;
         const by = prev.y + (bv.b.y - prev.y) * a;
         const bz = prev.z + (bv.b.z - prev.z) * a;
-        bv.group.position.set(bx, by, bz);
+        h.group.position.set(bx, by, bz);
         const byaw = prev.yaw + angleDelta(prev.yaw, bv.b.yaw) * a;
-        bv.group.rotation.y = byaw;
+        h.group.rotation.y = byaw;
+        // Walk cycle from ground speed; per-bot phase offset desyncs gaits.
+        const sp01 = Math.min(1, Math.hypot(bv.b.vx, bv.b.vz) / 6.5);
+        if (sp01 > 0.02) botWalkPhase += dt * (6 + sp01 * 8);
+        h.walk(sp01, botWalkPhase + bv.b.id * 1.7);
+        h.aim(0, bv.b.adsAmount * 0.8);
         if (bv.b.hitFlashTicks > 0) {
           let mat = botFlashMats.get(bv.b.id);
           if (!mat) {
-            mat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.8 });
+            mat = whiteFlashMat();
             botFlashMats.set(bv.b.id, mat);
           }
-          bv.body.material = mat;
+          for (const m of h.flashMeshes) m.material = mat;
         } else {
-          bv.body.material = bv.baseMat;
+          for (let mi = 0; mi < h.meshes.length; mi++) h.meshes[mi]!.material = h.baseMats[mi]!;
         }
       }
 
@@ -421,5 +432,4 @@ export async function createRenderView(
   };
 }
 
-const DUMMY_MAT = new THREE.MeshStandardMaterial({ color: 0x8b93a3, roughness: 0.7 });
-const DUMMY_HEAD_MAT = new THREE.MeshStandardMaterial({ color: 0xb9c0cc, roughness: 0.55 });
+

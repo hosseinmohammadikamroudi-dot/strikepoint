@@ -6,22 +6,20 @@ import * as THREE from "three";
 import type { World } from "../sim/world";
 import type { Dummy } from "../sim/dummy";
 import type { Bot, BotArchetype } from "../sim/bot";
+import { createHumanoid, humanoidPalette, type Humanoid } from "./humanoid";
 
 export const COL_BG = 0x15181e;
 
 export interface DummyVisual {
-  group: THREE.Group;
-  body: THREE.Mesh;
-  head: THREE.Mesh;
+  humanoid: Humanoid;
   d: Dummy;
 }
 
 export interface BotVisual {
-  group: THREE.Group;
-  body: THREE.Mesh;
-  head: THREE.Mesh;
+  humanoid: Humanoid;
   b: Bot;
-  baseMat: THREE.MeshStandardMaterial;
+  /** Base shirt color (team/archetype read) for flash restore. */
+  shirt: number;
 }
 
 export interface SceneBundle {
@@ -86,33 +84,19 @@ export function buildScene(world: World, camera: THREE.PerspectiveCamera): Scene
     scene.add(m);
   }
 
-  const dummyMat = new THREE.MeshStandardMaterial({ color: 0x8b93a3, roughness: 0.7 });
-  const deadMat = new THREE.MeshStandardMaterial({ color: 0x3a3f4a, roughness: 0.9 });
-  const flashMat = new THREE.MeshStandardMaterial({
-    color: 0xffffff,
-    emissive: 0xffffff,
-    emissiveIntensity: 0.9,
-    roughness: 0.5,
-  });
+  // --- Dummies: full humanoid figures (legs, arms, head, eyes, hair) ---
   const dummies: DummyVisual[] = [];
   for (const d of world.dummies) {
-    const group = new THREE.Group();
-    const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.35, 1.1, 4, 12), dummyMat);
-    body.position.y = 0.9;
-    const head = new THREE.Mesh(
-      new THREE.SphereGeometry(0.22, 16, 12),
-      new THREE.MeshStandardMaterial({ color: 0xb9c0cc, roughness: 0.55 }),
+    const humanoid = createHumanoid(
+      humanoidPalette(d.id, { shirt: 0x8b93a3, pants: 0x6e7686 }),
     );
-    head.position.y = 1.65;
-    group.add(body, head);
-    group.position.set(d.x, 0, d.z);
-    scene.add(group);
-    dummies.push({ group, body, head, d });
+    humanoid.group.position.set(d.x, 0, d.z);
+    humanoid.group.rotation.y = d.yaw;
+    scene.add(humanoid.group);
+    dummies.push({ humanoid, d });
   }
-  void deadMat;
-  void flashMat;
 
-  // --- Bots (Phase 2): capsule + head, tinted per archetype ---
+  // --- Bots (Phase 2): humanoid figures, tinted per team/archetype ---
   const ARCHETYPE_COLORS: Record<BotArchetype, number> = {
     rusher: 0xd64545,
     cover: 0xd69a45,
@@ -120,23 +104,16 @@ export function buildScene(world: World, camera: THREE.PerspectiveCamera): Scene
   };
   const bots: BotVisual[] = [];
   for (const b of world.bots) {
-    const group = new THREE.Group();
     // Team read first (Phase 3): allies blue, enemies keep archetype tints.
-    const baseMat = new THREE.MeshStandardMaterial({
-      color: b.team === 0 ? 0x3f7fbf : ARCHETYPE_COLORS[b.archetype],
-      roughness: 0.65,
+    const shirt = b.team === 0 ? 0x3f7fbf : ARCHETYPE_COLORS[b.archetype];
+    const humanoid = createHumanoid({
+      ...humanoidPalette(b.id, { shirt, pants: 0x3d4452 }),
+      gun: b.defId, // weapon prop matches the bot's actual loadout
     });
-    const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.35, 1.1, 4, 12), baseMat);
-    body.position.y = 0.9;
-    const head = new THREE.Mesh(
-      new THREE.SphereGeometry(0.22, 16, 12),
-      new THREE.MeshStandardMaterial({ color: 0x2a2e36, roughness: 0.4 }),
-    );
-    head.position.y = 1.65;
-    group.add(body, head);
-    group.position.set(b.x, b.y, b.z);
-    scene.add(group);
-    bots.push({ group, body, head, b, baseMat });
+    humanoid.group.position.set(b.x, b.y, b.z);
+    humanoid.group.rotation.y = b.yaw;
+    scene.add(humanoid.group);
+    bots.push({ humanoid, b, shirt });
   }
 
   // Tracer pool: recycled short bright segments.
